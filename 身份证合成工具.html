@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>身份证合成工具</title>
+<style>
+:root{
+  --ink:#1f2328; --ink2:#59606a; --paper:#f6f3ec; --card:#fffdf9; --line:#ddd6c8; --seal:#b3261e; --seal2:#8f1d17;
+  --ok:#2f6f4e; --warn:#a45a00; --sel:#1e5fb3;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--paper);color:var(--ink);font:14px/1.5 -apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+header{display:flex;align-items:baseline;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--card)}
+header h1{margin:0;font:600 19px/1.2 "Songti SC","STSong","SimSun",serif;letter-spacing:.06em}
+header .hint{color:var(--ink2);font-size:13px}
+#msg{margin-left:auto;font-size:13px;color:var(--ok);min-height:1.5em;text-align:right}
+#msg.warn{color:var(--warn)}
+main{display:grid;grid-template-columns:minmax(380px,1fr) minmax(340px,440px);gap:18px;padding:16px 20px 24px;align-items:start}
+.col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.ph{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line)}
+.ph b{font:600 15px "Songti SC","STSong",serif;letter-spacing:.08em}
+.ph .st{font-size:12px;color:var(--ink2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ph .st.ok{color:var(--ok)} .ph .st.warn{color:var(--warn)}
+button{font:inherit;font-size:13px;padding:4px 10px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:5px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:#b9b0a0;background:#fbf9f5}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--seal);border-color:var(--seal);color:#fff}
+button.primary:hover{background:var(--seal2)}
+.view{position:relative;height:clamp(220px,calc((100vh - 250px)/2),400px);background:#ebe6dc;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
+.view canvas.main{display:block;cursor:default}
+.drop{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--ink2);cursor:pointer;border:2px dashed transparent;margin:10px;border-radius:8px}
+.drop:hover,.view.over .drop{border-color:#bdb3a2;background:rgba(255,255,255,.35)}
+.drop .big{font-size:15px;color:var(--ink)}
+.loupe{position:absolute;width:150px;height:150px;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.35);pointer-events:none;display:none;background:#000}
+.busy{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(246,243,236,.6);font-size:14px}
+.swapbar{display:flex;justify-content:center;margin:-4px 0}
+.prev{padding:12px;display:flex;justify-content:center;background:#e4dfd5}
+.prev canvas{box-shadow:0 1px 6px rgba(0,0,0,.18);background:#fff;max-width:100%}
+.opts{padding:10px 12px;display:grid;grid-template-columns:64px 1fr;gap:8px 10px;align-items:center;font-size:13px}
+.opts .lab{color:var(--ink2)}
+.seg{justify-self:start;display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{border:0;border-radius:0;border-right:1px solid var(--line);padding:4px 10px}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--ink);color:#fff}
+.chk{display:flex;gap:14px;flex-wrap:wrap}
+.chk label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+input[type=text]{font:inherit;font-size:13px;width:100%;padding:5px 8px;border:1px solid var(--line);border-radius:5px;background:#fff}
+.actions{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
+.foot{color:var(--ink2);font-size:12px;padding:0 12px 10px;line-height:1.6}
+.kbd{font-size:11px;border:1px solid var(--line);border-radius:3px;padding:0 4px;background:#fff}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>身份证合成</h1>
+  <span class="hint">拖入正反面照片 → 自动找四角、拉正 → 两面按同一尺寸排版</span>
+  <span id="msg"></span>
+</header>
+<main>
+  <div class="col" id="srcCol">
+    <div class="panel" data-i="0">
+      <div class="ph"><b>人像面</b><span class="st"></span>
+        <button data-act="flip" title="上下颠倒时用">旋转180°</button>
+        <button data-act="redetect">重新识别</button>
+        <button data-act="replace">换图</button>
+      </div>
+      <div class="view"><canvas class="main"></canvas><canvas class="loupe" width="150" height="150"></canvas>
+        <div class="drop"><div class="big">拖入照片，或点击选择</div><div>可一次选两张（正反面），自动分面</div></div>
+        <div class="busy">识别中…</div></div>
+    </div>
+    <div class="swapbar"><button id="swap" title="人像面与国徽面对调">⇅ 交换上下</button></div>
+    <div class="panel" data-i="1">
+      <div class="ph"><b>国徽面</b><span class="st"></span>
+        <button data-act="flip" title="上下颠倒时用">旋转180°</button>
+        <button data-act="redetect">重新识别</button>
+        <button data-act="replace">换图</button>
+      </div>
+      <div class="view"><canvas class="main"></canvas><canvas class="loupe" width="150" height="150"></canvas>
+        <div class="drop"><div class="big">拖入照片，或点击选择</div><div>可一次选两张（正反面），自动分面</div></div>
+        <div class="busy">识别中…</div></div>
+    </div>
+    <div class="foot">四角没对准时直接拖圆点；拖边中点可整条边平移。红色那条是卡片<b>顶边</b>。选中角点后可用方向键微调（<span class="kbd">Shift</span> 加大步长）。也可以 <span class="kbd">⌘V</span> 粘贴图片。</div>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <div class="ph"><b>成品</b><span class="st" id="outInfo"></span></div>
+      <div class="prev"><canvas id="prev"></canvas></div>
+      <div class="opts">
+        <span class="lab">尺寸</span>
+        <span class="seg" id="optScale"><button data-v="1">原大</button><button data-v="1.5">1.5 倍</button><button data-v="2">2 倍</button></span>
+        <span class="lab">版式</span>
+        <span class="seg" id="optLayout"><button data-v="a4">A4 纸</button><button data-v="tight">仅卡片</button></span>
+        <span class="lab">处理</span>
+        <span class="chk">
+          <label><input type="checkbox" id="optTone">统一色调</label>
+          <label><input type="checkbox" id="optBorder">细边框</label>
+          <label><input type="checkbox" id="optGray">黑白</label>
+        </span>
+        <span class="lab">水印</span>
+        <input type="text" id="optWm" placeholder="留空不加。例：仅供（2026）粤0311民初×号案诉讼使用">
+        <span class="lab">文件名</span>
+        <input type="text" id="optName" value="身份证">
+      </div>
+      <div class="actions">
+        <button class="primary" id="dlJpg" disabled>下载 JPG</button>
+        <button id="dlPdf" disabled>下载 PDF</button>
+        <button id="copyImg" disabled>复制图片</button>
+      </div>
+      <div class="foot">成品 300dpi。原大即实际尺寸 85.6×54mm，与复印件一致；在电脑上看可选 1.5 倍。全部在本机处理，不联网。</div>
+    </div>
+  </div>
+</main>
+<input type="file" id="file" accept="image/*" multiple hidden>
+
+<script id="detect-src" type="text/plain">
+/* ===== 身份证四角识别（纯 JS，无依赖） =====
+   detectCard(rgba, w, h) → {pts:[[x,y]×4] 左上/右上/右下/左下（长边水平）, score} | null
+   1. 彩色梯度（三通道取最大）
+   2. 带方向约束的霍夫变换取候选直线
+   3. 两两近似平行的线配成"对"，两对相交成四边形；按几何（凸、近直角、长宽比≈1.585）初筛
+   4. 沿四条边中段采样，统计"有同向边缘"的覆盖率打分（卡片外沿 ≈0.9，文字行、木纹 ≈0.3）
+   5. 最优四边形每条边用附近边缘点加权最小二乘重拟合，相邻两线求交得亚像素角点
+      （圆角卡片求出的是外接直角，正是 85.6×54mm 对应的四角） */
+const CARD_AR = 85.6 / 54;
+
+function detectCard(rgba, w, h) {
+  // 截图、微信转发图常带纯色边框（白边/黑边）。边框与照片的交界是整条笔直的强边缘，
+  // 会被当成卡片边 → 先裁掉四周的纯色行列再识别，坐标再加回去
+  // 但扫描件的白底也会被当成"纯色边"裁掉，此时卡边正好落在裁切线上，裁了反而丢边。
+  // 所以先按原图找；只有找到的四边形有一条边贴着裁切线、且几乎贯穿整个照片区时，才改用裁后的结果
+  const r0 = detectInner(rgba, w, h);
+  const t = trimBorders(rgba, w, h);
+  if (!(t.x0 || t.y0 || t.x1 < w || t.y1 < h)) return r0;
+  if (r0 && !onTrimLine(r0.pts, t, Math.min(w, h))) return r0;
+  const cw = t.x1 - t.x0, ch = t.y1 - t.y0, sub = new Uint8ClampedArray(cw * ch * 4);
+  for (let y = 0; y < ch; y++) sub.set(rgba.subarray(((y + t.y0) * w + t.x0) * 4, ((y + t.y0) * w + t.x1) * 4), y * cw * 4);
+  const r = detectInner(sub, cw, ch);
+  if (!r) return r0;
+  r.pts = r.pts.map(p => [p[0] + t.x0, p[1] + t.y0]);
+  return r;
+}
+function onTrimLine(pts, t, m) {
+  const tol = 2 + m * 0.012;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4];
+    for (const [k, v, lo, hi] of [[0, t.x0, t.y0, t.y1], [0, t.x1, t.y0, t.y1], [1, t.y0, t.x0, t.x1], [1, t.y1, t.x0, t.x1]]) {
+      if (Math.abs(a[k] - v) < tol && Math.abs(b[k] - v) < tol && Math.abs(a[1 - k] - b[1 - k]) > (hi - lo) * 0.85) return true;
+    }
+  }
+  return false;
+}
+function trimBorders(d, w, h) {
+  // 一行/一列内三通道的极差都很小，视为纯色边框；最多各裁 25%
+  const flat = (get, n) => { let mn = [255, 255, 255], mx = [0, 0, 0];
+    for (let k = 0; k < n; k++) { const i = get(k); for (let c = 0; c < 3; c++) { const v = d[i + c]; if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; } }
+    return mx[0] - mn[0] < 14 && mx[1] - mn[1] < 14 && mx[2] - mn[2] < 14; };
+  const row = y => flat(k => (y * w + k) * 4, w), col = x => flat(k => (k * w + x) * 4, h);
+  let y0 = 0, y1 = h, x0 = 0, x1 = w;
+  while (y0 < h * 0.25 && row(y0)) y0++;
+  while (y1 > h * 0.75 && row(y1 - 1)) y1--;
+  while (x0 < w * 0.25 && col(x0)) x0++;
+  while (x1 > w * 0.75 && col(x1 - 1)) x1--;
+  return (x1 - x0 < 40 || y1 - y0 < 40) ? { x0: 0, y0: 0, x1: w, y1: h } : { x0, y0, x1, y1 };
+}
+function detectInner(rgba, w, h) {
+  const ok = r => r && r.ar >= 0.8 && r.cov.min >= 0.9;
+  let r = detectCore(rgba, w, h, 4);
+  // 不够可靠时降阈值重找：卡面防伪底纹密，会把噪声水平估高；
+  // 扫描件、贴满画面的照片，浅色卡边对白底的那两条边对比弱，原阈值下凑不齐四边
+  if (!ok(r)) {
+    const r2 = detectCore(rgba, w, h, 3, 0.98, 1.3);
+    if (r2 && (ok(r2) || !r || r2.qual > r.qual)) r = r2;
+  }
+  if (ok(r)) return r;
+  // 选中的四边形不太像卡片（长宽比偏、或占了大半张图——多半是卡片底下的纸/书）：
+  // 在它内部再找一遍，阈值按内部重新计算（白纸上的卡边对比低，会被外面的纹理淹没）
+  if (r && (r.ar < 0.8 || (r.area > w * h * 0.35 && r.ar < 0.95))) {
+    const xs = r.pts.map(p => p[0]), ys = r.pts.map(p => p[1]);
+    const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys)));
+    const x1 = Math.min(w, Math.ceil(Math.max(...xs))), y1 = Math.min(h, Math.ceil(Math.max(...ys)));
+    const cw = x1 - x0, ch = y1 - y0;
+    if (cw > 40 && ch > 40) {
+      // 纸以外的部分涂成纸的平均色，免得纸边又被找回来
+      const sub = new Uint8ClampedArray(cw * ch * 4), poly = r.pts.map(p => [p[0] - x0, p[1] - y0]);
+      const inset = Math.sqrt(r.area) * 0.015;
+      let sr = 0, sg = 0, sb = 0, n = 0;
+      for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+        const si = ((y + y0) * w + x + x0) * 4, di = (y * cw + x) * 4;
+        sub[di] = rgba[si]; sub[di + 1] = rgba[si + 1]; sub[di + 2] = rgba[si + 2]; sub[di + 3] = 255;
+        if (insidePoly([x, y], poly, -inset)) { sr += rgba[si]; sg += rgba[si + 1]; sb += rgba[si + 2]; n++; }
+      }
+      if (n) {
+        sr /= n; sg /= n; sb /= n;
+        for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (!insidePoly([x, y], poly, -inset)) {
+          const di = (y * cw + x) * 4; sub[di] = sr; sub[di + 1] = sg; sub[di + 2] = sb;
+        }
+        const r2 = detectCore(sub, cw, ch, 2.5, 0.5);
+        if (r2 && r2.ar >= 0.75 && r2.cov.min >= 0.85 && r2.area > cw * ch * 0.02) {
+          r2.pts = r2.pts.map(p => [p[0] + x0, p[1] + y0]);
+          return r2;
+        }
+      }
+    }
+  }
+  return r;
+}
+
+function detectCore(rgba, w, h, floor, maxArea = 0.98, mul = 2.5) {
+  const g = gradients(rgba, w, h, floor, mul);
+  const lines = houghLines(g, w, h, 60);
+  const quads = buildQuads(lines, w, h, maxArea);
+  const cands = [];
+  for (const q of quads) {
+    const s = supportScore(g, q.pts, w, h);
+    if (!s) continue;
+    const qual = (0.4 + 0.6 * q.arScore) * s.min ** 2 * s.mean * Math.sqrt(s.str);
+    cands.push({ pts: q.pts, area: q.area, ar: q.arScore, qual, score: Math.sqrt(q.area / (w * h)) * qual, cov: s });
+  }
+  if (!cands.length) return null;
+  cands.sort((a, b) => b.score - a.score);
+  let best = cands[0];
+  // 嵌套优先：好四边形里还套着一个"像卡片"的好四边形 → 取里面的
+  // （卡片放在 A4 纸/书上、卡套、阴影外沿都属此类；卡片内部没有长宽比 1.585 的完整矩形）
+  for (let guard = 0; guard < 5; guard++) {
+    let inner = null;
+    for (const c of cands) {
+      if (c === best || c.area > best.area * 0.92 || c.area < best.area * 0.04) continue;
+      if (c.ar < Math.max(0.5, best.ar - 0.05) || c.cov.min < 0.85 || c.qual < best.qual * 0.9) continue;
+      if (!c.pts.every(p => insidePoly(p, best.pts, Math.sqrt(best.area) * 0.02))) continue;
+      if (!inner || c.score > inner.score) inner = c;
+    }
+    if (!inner) break;
+    best = inner;
+  }
+  if (best.cov.min < 0.45) return null;
+  let pts = refine(g, best.pts, w, h, 3, 0.04);   // 往内多搜一段：卡边比阴影外沿锐
+  pts = refine(g, pts, w, h, 1.6);
+  return { pts: orderLandscape(pts), score: best.score, qual: best.qual, cov: best.cov, ar: best.ar, area: best.area };
+}
+
+/* ---------- 梯度 ---------- */
+function gradients(rgba, w, h, floor = 4, mul = 2.5) {
+  // 3×3 盒式模糊两遍 ≈ 高斯，压掉噪点和纸纹
+  const ch = [0, 1, 2].map(c => { const a = new Float32Array(w * h); for (let i = 0; i < w * h; i++) a[i] = rgba[i * 4 + c]; return boxBlur(boxBlur(a, w, h), w, h); });
+  const mag = new Float32Array(w * h), gx = new Float32Array(w * h), gy = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x; let bm = -1, bx = 0, by = 0;
+    for (const a of ch) {
+      const sx = (a[i - w + 1] + 2 * a[i + 1] + a[i + w + 1]) - (a[i - w - 1] + 2 * a[i - 1] + a[i + w - 1]);
+      const sy = (a[i + w - 1] + 2 * a[i + w] + a[i + w + 1]) - (a[i - w - 1] + 2 * a[i - w] + a[i - w + 1]);
+      const m = sx * sx + sy * sy; if (m > bm) { bm = m; bx = sx; by = sy; }
+    }
+    const m = Math.sqrt(bm) / 4; mag[i] = m; gx[i] = bx / 4; gy[i] = by / 4;
+  }
+  // 噪声水平：梯度中位数
+  const hist = new Uint32Array(256); let n = 0;
+  for (let i = 0; i < mag.length; i += 3) { hist[Math.min(255, mag[i] | 0)]++; n++; }
+  let acc = 0, med = 1; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n / 2) { med = v + 0.5; break; } }
+  const T = new Float32Array(w * h).fill(Math.max(floor, mul * med));
+  return { mag, gx, gy, w, h, noise: med, T };
+}
+function boxBlur(a, w, h) {
+  const t = new Float32Array(w * h), o = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) { const r = y * w; for (let x = 0; x < w; x++) { const l = x > 0 ? x - 1 : x, rr = x < w - 1 ? x + 1 : x; t[r + x] = (a[r + l] + a[r + x] + a[r + rr]) / 3; } }
+  for (let y = 0; y < h; y++) { const u = y > 0 ? y - 1 : y, d = y < h - 1 ? y + 1 : y; for (let x = 0; x < w; x++) o[y * w + x] = (t[u * w + x] + t[y * w + x] + t[d * w + x]) / 3; }
+  return o;
+}
+
+/* ---------- 霍夫直线 ---------- */
+// 直线：x·cosθ + y·sinθ = ρ，θ∈[0,π)
+function houghLines(g, w, h, maxN) {
+  const NT = 180, diag = Math.ceil(Math.hypot(w, h)), NR = 2 * diag + 1;
+  const acc = new Float32Array(NT * NR);
+  const cs = new Float32Array(NT), sn = new Float32Array(NT);
+  for (let t = 0; t < NT; t++) { cs[t] = Math.cos(t * Math.PI / NT); sn[t] = Math.sin(t * Math.PI / NT); }
+  const { mag, gx, gy, T } = g;
+  for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+    const i = y * w + x, m = mag[i], thr = T[i]; if (m < thr) continue;
+    let th = Math.atan2(gy[i], gx[i]); if (th < 0) th += Math.PI; if (th >= Math.PI) th -= Math.PI;
+    const t0 = Math.round(th * NT / Math.PI);
+    const wv = Math.min(m, 6 * thr);           // 封顶：避免文字等高反差细节主导
+    for (let d = -3; d <= 3; d++) {
+      const t = (t0 + d + NT) % NT;
+      const r = Math.round(x * cs[t] + y * sn[t]) + diag;
+      acc[t * NR + r] += wv;
+    }
+  }
+  // 非极大值抑制取峰
+  const peaks = [];
+  for (let t = 0; t < NT; t++) for (let r = 1; r < NR - 1; r++) { const v = acc[t * NR + r]; if (v > 0) peaks.push(v, t, r); }
+  const idx = []; for (let k = 0; k < peaks.length; k += 3) idx.push(k);
+  idx.sort((a, b) => peaks[b] - peaks[a]);
+  const out = [];
+  for (const k of idx) {
+    if (out.length >= 900) break;
+    const t = peaks[k + 1], r = peaks[k + 2] - diag;
+    let dup = false;
+    for (const L of out) {
+      let dt = Math.abs(L.t - t), dr = Math.abs(L.r - r);
+      if (dt > NT / 2) { dt = NT - dt; dr = Math.abs(L.r + r); } // θ 回绕：(θ,ρ)≡(θ±π,−ρ)
+      if (dt <= 2 && dr <= 3) { dup = true; break; }
+    }
+    if (!dup) out.push({ t, r, th: t * Math.PI / NT, c: cs[t], s: sn[t] });
+  }
+  // 按"沿线最长连续边缘段"重新排名：木纹、文字行弯曲或断续，段短；卡边、纸边是长直段
+  const minRun = Math.min(w, h) * 0.06;
+  for (const L of out) Object.assign(L, longestRun(g, L, w, h));
+  const ranked = out.filter(L => L.run >= minRun).sort((a, b) => b.run - a.run), keep = [];
+  // 去重：同一段边缘会被一束角度略异的直线穿过，按"连续段中点到已选直线的距离"判重
+  for (const L of ranked) {
+    if (keep.length >= maxN) break;
+    if (keep.some(K => angDiff(K.th, L.th) < 0.1 &&
+      Math.abs(L.mx * K.c + L.my * K.s - K.r) < 5 && Math.abs(K.mx * L.c + K.my * L.s - L.r) < 5)) continue;
+    keep.push(L);
+  }
+  return keep;
+}
+function longestRun(g, L, w, h) {
+  const { mag, gx, gy, T } = g;
+  const dx = -L.s, dy = L.c, x0 = L.r * L.c, y0 = L.r * L.s;   // 线上一点 + 方向
+  const TL = Math.hypot(w, h);
+  // 极性须一致：真实边缘沿线一侧始终较亮；纹理（木纹、布纹）是明暗交替的
+  let best = 0, cur = 0, gap = 0, sg = 0, bt = 0;
+  for (let t = -TL; t <= TL; t += 1) {
+    const px = x0 + dx * t, py = y0 + dy * t;
+    if (px < 2 || py < 2 || px > w - 3 || py > h - 3) { cur = 0; gap = 0; continue; }
+    let hit = 0;
+    for (let d = -1; d <= 1 && !hit; d++) {
+      const x = Math.round(px + L.c * d), y = Math.round(py + L.s * d), i = y * w + x, m = mag[i];
+      if (m >= T[i]) { const p = (gx[i] * L.c + gy[i] * L.s) / m; if (p > 0.85) hit = 1; else if (p < -0.85) hit = -1; }
+    }
+    if (hit && (!cur || hit === sg)) { if (!cur) sg = hit; cur += 1 + gap; gap = 0; if (cur > best) { best = cur; bt = t; } }
+    else if (hit) { cur = 1; gap = 0; sg = hit; }
+    else if (cur && ++gap > 3) { cur = 0; gap = 0; }
+  }
+  const tm = bt - best / 2;  // 最长段中点
+  return { run: best, mx: x0 + dx * tm, my: y0 + dy * tm };
+}
+
+/* ---------- 组四边形 ---------- */
+function lineIntersect(a, b) {
+  const den = a.c * b.s - a.s * b.c; if (Math.abs(den) < 1e-6) return null;
+  return [(a.r * b.s - b.r * a.s) / den, (a.c * b.r - b.c * a.r) / den];
+}
+function angDiff(a, b) { let d = Math.abs(a - b) % Math.PI; return d > Math.PI / 2 ? Math.PI - d : d; }
+function buildQuads(L, w, h, maxArea) {
+  const pairs = [], minSep = Math.min(w, h) * 0.07;
+  for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+    if (angDiff(L[i].th, L[j].th) > 0.42) continue;  // 24°内视为同向（透视会让对边不平行）
+    // 两线间距：取图中心到两线的有向距离差
+    const cx = w / 2, cy = h / 2;
+    const di = cx * L[i].c + cy * L[i].s - L[i].r;
+    let dj = cx * L[j].c + cy * L[j].s - L[j].r;
+    if (L[i].c * L[j].c + L[i].s * L[j].s < 0) dj = -dj;
+    if (Math.abs(di - dj) < minSep) continue;
+    pairs.push([L[i], L[j]]);
+  }
+  const quads = [];
+  for (let a = 0; a < pairs.length; a++) for (let b = a + 1; b < pairs.length; b++) {
+    const [p1, p2] = pairs[a], [q1, q2] = pairs[b];
+    const da = angDiff(p1.th, q1.th); if (da < 0.85) continue; // 两组方向夹角 ≥ ~49°
+    if (p1 === q1 || p1 === q2 || p2 === q1 || p2 === q2) continue;
+    const c = [lineIntersect(p1, q1), lineIntersect(q1, p2), lineIntersect(p2, q2), lineIntersect(q2, p1)];
+    if (c.some(x => !x)) continue;
+    const pts = orderCW(c);
+    // 角点可略出画面（卡片圆角贴边），但不能远离
+    const mx = w * 0.04, my = h * 0.04;
+    if (pts.some(([x, y]) => x < -mx || y < -my || x > w + mx || y > h + my)) continue;
+    if (!isConvex(pts)) continue;
+    const area = polyArea(pts); if (area < w * h * 0.015 || area > w * h * maxArea) continue;
+    let ok = true;
+    for (let i = 0; i < 4 && ok; i++) {
+      const p = pts[(i + 3) % 4], o = pts[i], n = pts[(i + 1) % 4];
+      const v1 = [p[0] - o[0], p[1] - o[1]], v2 = [n[0] - o[0], n[1] - o[1]];
+      if (Math.abs((v1[0] * v2[0] + v1[1] * v2[1]) / (Math.hypot(...v1) * Math.hypot(...v2))) > 0.5) ok = false; // 60°–120°
+    }
+    if (!ok) continue;
+    const s1 = (D(pts[0], pts[1]) + D(pts[2], pts[3])) / 2, s2 = (D(pts[1], pts[2]) + D(pts[3], pts[0])) / 2;
+    const ar = Math.max(s1, s2) / Math.min(s1, s2);
+    if (ar < 1.25 || ar > 2.1) continue;
+    quads.push({ pts, area, arScore: Math.exp(-((Math.log(ar / CARD_AR)) ** 2) / (2 * 0.11 ** 2)) });
+  }
+  return quads;
+}
+
+/* ---------- 边缘覆盖率 ---------- */
+function sideCoverage(g, A, B, N) {
+  const { mag, gx, gy, w, h, T } = g;
+  const L = D(A, B), ux = (B[0] - A[0]) / L, uy = (B[1] - A[1]) / L, nx = -uy, ny = ux;
+  let hit = 0, tot = 0, str = 0;
+  for (let k = 0; k < N; k++) {
+    const t = 0.12 + 0.76 * (k + 0.5) / N;                       // 避开圆角
+    const px = A[0] + (B[0] - A[0]) * t, py = A[1] + (B[1] - A[1]) * t;
+    let best = 0, thr = 0;
+    for (let d = -2; d <= 2; d++) {
+      const x = Math.round(px + nx * d), y = Math.round(py + ny * d);
+      if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+      const i = y * w + x, m = mag[i]; if (!m) continue;
+      const al = Math.abs(gx[i] * nx + gy[i] * ny) / m;           // 梯度须垂直于边
+      if (al > 0.85 && m / T[i] > best / (thr || 1)) { best = m; thr = T[i]; }
+    }
+    tot++; if (thr && best >= thr) { hit++; str += Math.min(1, best / (10 * thr)); }
+  }
+  return tot ? { cov: hit / tot, str: str / tot } : { cov: 0, str: 0 };
+}
+function supportScore(g, pts) {
+  const c = [], st = [];
+  for (let i = 0; i < 4; i++) { const r = sideCoverage(g, pts[i], pts[(i + 1) % 4], 48); c.push(r.cov); st.push(r.str); }
+  const min = Math.min(...c); if (min < 0.3) return null;
+  return { min, mean: c.reduce((a, b) => a + b) / 4, str: st.reduce((a, b) => a + b) / 4, sides: c };
+}
+
+/* ---------- 精修：每边加权最小二乘 ---------- */
+function refine(g, pts, w, h, band = 3, inward = 0) {
+  const { mag, gx, gy, T } = g;
+  const lines = [];
+  for (let s = 0; s < 4; s++) {
+    const A = pts[s], B = pts[(s + 1) % 4], L = D(A, B);
+    const perp = (D(pts[(s + 1) % 4], pts[(s + 2) % 4]) + D(pts[(s + 3) % 4], pts[s])) / 2;
+    const dIn = Math.max(Math.ceil(band), Math.ceil(perp * inward)), dOut = Math.ceil(band);
+    const ux = (B[0] - A[0]) / L, uy = (B[1] - A[1]) / L, nx = -uy, ny = ux;
+    let sw = 0, sx = 0, sy = 0; const P = [];
+    const steps = Math.ceil(L);
+    for (let k = 0; k < steps; k++) {
+      const t = 0.1 + 0.8 * k / steps;
+      const px = A[0] + (B[0] - A[0]) * t, py = A[1] + (B[1] - A[1]) * t;
+      // 法向上取梯度最大处，再用抛物线插值得亚像素位置
+      let bd = 0, bm = 0, bthr = 0; const ms = [];
+      for (let d = -dOut; d <= dIn; d++) {
+        const x = Math.round(px + nx * d), y = Math.round(py + ny * d);
+        let m = 0;
+        if (x >= 1 && y >= 1 && x < w - 1 && y < h - 1) {
+          const i = y * w + x; m = mag[i];
+          if (m && Math.abs(gx[i] * nx + gy[i] * ny) / m < 0.85) m = 0;
+        }
+        ms.push(m); if (m > bm) { bm = m; bd = d; bthr = x >= 1 && y >= 1 && x < w - 1 && y < h - 1 ? T[y * w + x] : 1e9; }
+      }
+      if (bm < bthr) continue;
+      const j = bd + dOut, m0 = ms[j - 1] || 0, m2 = ms[j + 1] || 0;
+      const den = m0 - 2 * bm + m2, off = den < 0 ? 0.5 * (m0 - m2) / den : 0;
+      P.push([px + nx * (bd + off), py + ny * (bd + off), bm]);
+    }
+    if (P.length < 10) { lines.push(null); continue; }
+    lines.push(fitLineW(P));
+  }
+  const out = [];
+  for (let s = 0; s < 4; s++) {
+    const a = lines[(s + 3) % 4], b = lines[s];
+    const p = a && b ? isectPD(a, b) : null;
+    out.push(p && D(p, pts[s]) < Math.hypot(w, h) * 0.03 ? p : pts[s]);
+  }
+  return out;
+}
+function fitLineW(P) {
+  // 先拟合一次，剔除离线 >1.5px 的点再拟合（文字等干扰）
+  let L = fitW(P);
+  const Q = P.filter(([x, y]) => Math.abs(-(x - L.x) * L.dy + (y - L.y) * L.dx) < 1.5);
+  return Q.length >= 10 ? fitW(Q) : L;
+}
+function fitW(P) {
+  let sw = 0, mx = 0, my = 0; for (const [x, y, m] of P) { sw += m; mx += x * m; my += y * m; } mx /= sw; my /= sw;
+  let sxx = 0, syy = 0, sxy = 0; for (const [x, y, m] of P) { const a = x - mx, b = y - my; sxx += m * a * a; syy += m * b * b; sxy += m * a * b; }
+  const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  return { x: mx, y: my, dx: Math.cos(th), dy: Math.sin(th) };
+}
+function isectPD(a, b) {
+  const den = a.dx * b.dy - a.dy * b.dx; if (Math.abs(den) < 1e-6) return null;
+  const t = ((b.x - a.x) * b.dy - (b.y - a.y) * b.dx) / den;
+  return [a.x + t * a.dx, a.y + t * a.dy];
+}
+
+/* ---------- 几何工具 ---------- */
+function D(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+function orderCW(p) {
+  const cx = p.reduce((s, q) => s + q[0], 0) / 4, cy = p.reduce((s, q) => s + q[1], 0) / 4;
+  return p.slice().sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+}
+function insidePoly(pt, poly, tol) { // 点在凸多边形内（允许 tol 像素外扩）
+  for (let i = 0; i < 4; i++) {
+    const a = poly[i], b = poly[(i + 1) % 4], L = D(a, b);
+    if (((b[0] - a[0]) * (pt[1] - a[1]) - (b[1] - a[1]) * (pt[0] - a[0])) / L < -tol) return false;
+  }
+  return true;
+}
+function polyArea(p) { let s = 0; for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; }
+function isConvex(p) { let sg = 0; for (let i = 0; i < 4; i++) { const a = p[i], b = p[(i + 1) % 4], c = p[(i + 2) % 4]; const z = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]); if (Math.abs(z) < 1e-9) return false; if (!sg) sg = Math.sign(z); else if (Math.sign(z) !== sg) return false; } return true; }
+/* 排成 左上/右上/右下/左下，且 0→1 为长边 */
+function orderLandscape(p) {
+  p = orderCW(p);
+  let k = 0; p.forEach((q, i) => { if (q[0] + q[1] < p[k][0] + p[k][1]) k = i; });
+  p = p.slice(k).concat(p.slice(0, k));
+  if ((D(p[0], p[1]) + D(p[2], p[3])) < (D(p[1], p[2]) + D(p[3], p[0]))) p = [p[3], p[0], p[1], p[2]];
+  return p;
+}
+</script>
+
+<script>
+'use strict';
+/* =================== 常量 =================== */
+const CARD_W = 85.6, CARD_H = 54, CARD_R = 3.18;       // ISO/IEC 7810 ID-1，mm
+const A4_W = 210, A4_H = 297;
+const OUT_DPI = 300;
+const WORK_MAX = 3600;   // 工作图长边上限（足够 2 倍尺寸 300dpi）
+const DET_MAX = 640;     // 识别用缩略图长边
+const SIDE_NAMES = ['人像面', '国徽面'];
+
+/* =================== 状态 =================== */
+const S = {
+  sides: [null, null],   // {work:canvas, w,h, pts:[[x,y]×4], status, cls, name}
+  opt: { scale: 1, layout: 'a4', tone: true, border: true, gray: false, wm: '', name: '身份证' },
+  active: null,          // {i, k} 当前选中的角点
+  userSwapped: false,
+};
+try { Object.assign(S.opt, JSON.parse(localStorage.getItem('idcomp-opt') || '{}')); } catch (e) {}
+S.opt.wm = ''; S.opt.name = '身份证';
+function saveOpt() { try { const { scale, layout, tone, border, gray } = S.opt; localStorage.setItem('idcomp-opt', JSON.stringify({ scale, layout, tone, border, gray })); } catch (e) {} }
+
+const $ = s => document.querySelector(s);
+const panels = [...document.querySelectorAll('.panel[data-i]')];
+let msgTimer = 0;
+function msg(t, warn) { const m = $('#msg'); m.textContent = t; m.className = warn ? 'warn' : ''; clearTimeout(msgTimer); if (t) msgTimer = setTimeout(() => m.textContent = '', 7000); }
+
+/* =================== 识别（Web Worker，失败则主线程） =================== */
+const DETECT_SRC = document.getElementById('detect-src').textContent;
+let worker = null, wseq = 0; const wcb = new Map();
+try {
+  const url = URL.createObjectURL(new Blob([DETECT_SRC + `
+    self.onmessage = e => { const { id, data, w, h } = e.data; let r = null;
+      try { r = detectCard(data, w, h); } catch (err) { r = null; }
+      self.postMessage({ id, r: r ? { pts: r.pts, cov: r.cov.min, ar: r.ar, af: r.area / (w * h) } : null }); };`], { type: 'text/javascript' }));
+  worker = new Worker(url);
+  worker.onmessage = e => { const f = wcb.get(e.data.id); wcb.delete(e.data.id); f && f(e.data.r); };
+  worker.onerror = () => { worker = null; };
+} catch (e) { worker = null; }
+let mainDetect = null;
+function runDetect(data, w, h) {
+  if (worker) return new Promise(res => { const id = ++wseq; wcb.set(id, res); worker.postMessage({ id, data, w, h }, [data.buffer]); });
+  if (!mainDetect) mainDetect = new Function(DETECT_SRC + '; return detectCard;')();
+  const r = mainDetect(data, w, h);
+  return Promise.resolve(r ? { pts: r.pts, cov: r.cov.min, ar: r.ar, af: r.area / (w * h) } : null);
+}
+
+/* =================== 载入图片 =================== */
+async function loadFile(file) {
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) {
+    if (/heic|heif/i.test(file.type + file.name)) throw new Error('HEIC 格式浏览器读不了，请在微信里转发后另存，或在手机设置里改为"兼容性最佳"');
+    throw new Error('读不了这个文件：' + file.name);
+  }
+  const s = Math.min(1, WORK_MAX / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * s), h = Math.round(bmp.height * s);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(bmp, 0, 0, w, h);
+  bmp.close && bmp.close();
+  return { work: c, w, h, pts: defaultQuad(w, h), status: '', name: file.name || '粘贴的图片', cls: null };
+}
+function defaultQuad(w, h) {
+  let cw = w * 0.7, ch = cw / (CARD_W / CARD_H);
+  if (ch > h * 0.7) { ch = h * 0.7; cw = ch * CARD_W / CARD_H; }
+  const x0 = (w - cw) / 2, y0 = (h - ch) / 2;
+  return [[x0, y0], [x0 + cw, y0], [x0 + cw, y0 + ch], [x0, y0 + ch]];
+}
+
+async function detectSide(sd) {
+  const s = Math.min(1, DET_MAX / Math.max(sd.w, sd.h));
+  const w = Math.round(sd.w * s), h = Math.round(sd.h * s);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(sd.work, 0, 0, w, h);
+  const data = x.getImageData(0, 0, w, h).data;
+  const r = await runDetect(data, w, h);
+  const sure = r && r.cov >= 0.85 && r.ar >= 0.6;
+  // 整张图本身就是卡片比例（已裁好的图、扫描件）：识别不到、或只找到一小块时，按整张图处理
+  const ar = Math.max(sd.w, sd.h) / Math.min(sd.w, sd.h), cardLike = ar > 1.4 && ar < 1.8;
+  if (!sure && cardLike && (!r || r.af < 0.3)) {
+    const W = sd.w, H = sd.h;
+    sd.pts = W >= H ? [[0, 0], [W, 0], [W, H], [0, H]] : [[0, H], [0, 0], [W, 0], [W, H]];
+    sd.status = 'warn:未找到边缘，按整张图处理，请核对四角';
+  } else if (!r) { sd.pts = defaultQuad(sd.w, sd.h); sd.status = 'warn:未识别到卡片边缘，请拖动四角对准'; sd.cls = analyze(sd); return false; }
+  else {
+    sd.pts = r.pts.map(([px, py]) => [px / s, py / s]);
+    sd.status = sure ? 'ok:已自动对准' : 'warn:识别把握不大，请核对四角';
+  }
+  // 判定正反面与方向（倒置自动转正）
+  sd.cls = analyze(sd);
+  if (sd.cls.flip) { sd.pts = rot180(sd.pts); sd.cls = analyze(sd); sd.status += '（已转正）'; }
+  return true;
+}
+const rot180 = p => [p[2], p[3], p[0], p[1]];
+
+/* 正反面与方向判断：在拉正的小图上看
+   国徽面：左上角有红色国徽（含金色），倒置时在右下角
+   人像面：右侧照片区、底部号码行比左侧文字区、顶部姓名行暗得多 */
+function analyze(sd) {
+  const W = 342, H = 216;
+  const id = warpImage(sd.work, sd.pts, W, H, 2);
+  const d = id.data;
+  const L = i => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  const hist = new Uint32Array(256); for (let i = 0; i < d.length; i += 4) hist[L(i) | 0]++;
+  let acc = 0, med = 200; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= W * H / 2) { med = v; break; } }
+  const frac = (x0, x1, y0, y1, f) => { let n = 0, c = 0; for (let y = (y0 * H) | 0; y < y1 * H; y++) for (let x = (x0 * W) | 0; x < x1 * W; x++) { n++; if (f((y * W + x) * 4)) c++; } return c / n; };
+  // 国徽红实测约 (216,102,98)；阈值收严到皮肤（R−G 多在 30–60）、粉色底纹都不算
+  const red = i => d[i] > 110 && d[i] - d[i + 1] > 70 && d[i] - d[i + 2] > 60;
+  const dark = i => L(i) < med - 70;
+  const rU = frac(.03, .32, .03, .45, red), rD = frac(.68, .97, .55, .97, red);
+  // 卡面其余部分的红色：国徽面几乎为零；人像照里的红衣服会摊到别处
+  const rAll = frac(0, 1, 0, 1, red), rElse = Math.max(0, rAll - (rU + rD) * (.29 * .42) / 1);
+  const emb = Math.max(rU, rD);
+  if (emb > 0.12 && rElse < 0.03 && Math.min(rU, rD) < emb * 0.3) return { side: 1, conf: emb, flip: rD > rU };
+  const pU = frac(.62, .95, .10, .80, dark) + frac(.33, .95, .78, .93, dark);
+  const pD = frac(.05, .38, .20, .90, dark) + frac(.05, .67, .07, .22, dark);
+  return { side: 0, conf: Math.abs(pU - pD), flip: pD > pU + 0.06 };
+}
+
+async function addFiles(files, target) {
+  files = [...files].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif|bmp|gif)$/i.test(f.name));
+  if (!files.length) { msg('没有可用的图片文件', true); return; }
+  if (files.length > 2) { msg('只取前两张', true); files = files.slice(0, 2); }
+  // 放到哪：指定面板优先；两张则一起替换
+  let slots;
+  if (files.length === 2) slots = [0, 1];
+  else if (target != null) slots = [target];
+  else slots = [S.sides[0] ? (S.sides[1] ? 0 : 1) : 0];
+  slots.forEach(i => setBusy(i, true));
+  const loaded = [];
+  for (let k = 0; k < files.length; k++) {
+    try { const sd = await loadFile(files[k]); S.sides[slots[k]] = sd; loaded.push(slots[k]); drawView(slots[k]); }
+    catch (e) { msg(e.message, true); setBusy(slots[k], false); }
+  }
+  await Promise.all(loaded.map(async i => { await detectSide(S.sides[i]); setBusy(i, false); drawView(i); }));
+  slots.forEach(i => setBusy(i, false));
+  autoOrder(loaded.length === 2);
+  refresh();
+}
+/* 两面都有了：若判断出放反了，自动对调（用户手动对调过则不再自动） */
+function autoOrder(both) {
+  const [a, b] = S.sides; if (!a || !b || !a.cls || !b.cls) return;
+  if (S.userSwapped && !both) return;
+  const aIsEmb = a.cls.side === 1, bIsEmb = b.cls.side === 1;
+  if (aIsEmb && !bIsEmb) { S.sides = [b, a]; msg('已自动调整为人像面在上'); drawView(0); drawView(1); }
+}
+
+/* =================== 透视拉正 =================== */
+// 求单应矩阵 H，使 dst ← H·src（4 点）
+function homography(src, dst) {
+  const A = [], B = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); B.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); B.push(v);
+  }
+  // 高斯消元
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [B[c], B[p]] = [B[p], B[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) {
+      const f = A[r][c] / A[c][c]; if (!f) continue;
+      for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k]; B[r] -= f * B[c];
+    }
+  }
+  return B.map((b, i) => b / A[i][i]);
+}
+/* 从工作图上按四角取出卡片，输出 W×H 的 ImageData。
+   源图远大于输出时先按比例缩小（浏览器高质量缩放），再双线性采样，避免锯齿 */
+function warpImage(work, pts, W, H, over = 1.25) {
+  const srcW = (Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) + Math.hypot(pts[2][0] - pts[3][0], pts[2][1] - pts[3][1])) / 2;
+  const s = Math.min(1, over * W / srcW);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const bx0 = Math.max(0, Math.floor(Math.min(...xs)) - 2), by0 = Math.max(0, Math.floor(Math.min(...ys)) - 2);
+  const bx1 = Math.min(work.width, Math.ceil(Math.max(...xs)) + 2), by1 = Math.min(work.height, Math.ceil(Math.max(...ys)) + 2);
+  const sw = Math.max(1, Math.round((bx1 - bx0) * s)), sh = Math.max(1, Math.round((by1 - by0) * s));
+  const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high';
+  if (bx1 > bx0 && by1 > by0) x.drawImage(work, bx0, by0, bx1 - bx0, by1 - by0, 0, 0, sw, sh);
+  const src = x.getImageData(0, 0, sw, sh).data;
+  const kx = sw / (bx1 - bx0 || 1), ky = sh / (by1 - by0 || 1);
+  const q = pts.map(([px, py]) => [(px - bx0) * kx, (py - by0) * ky]);
+  const [a, b, cc, d, e, f, g, h] = homography([[0, 0], [W, 0], [W, H], [0, H]], q);
+  const out = new ImageData(W, H), o = out.data;
+  for (let y = 0; y < H; y++) {
+    const Y = y + 0.5;
+    for (let xx = 0; xx < W; xx++) {
+      const X = xx + 0.5, den = g * X + h * Y + 1;
+      const u = (a * X + b * Y + cc) / den - 0.5, v = (d * X + e * Y + f) / den - 0.5;
+      const oi = (y * W + xx) * 4;
+      const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+      if (x0 < -1 || y0 < -1 || x0 >= sw || y0 >= sh) { o[oi] = o[oi + 1] = o[oi + 2] = 255; o[oi + 3] = 255; continue; }
+      const X0 = Math.max(0, x0), X1 = Math.min(sw - 1, x0 + 1), Y0 = Math.max(0, y0), Y1 = Math.min(sh - 1, y0 + 1);
+      const i00 = (Y0 * sw + X0) * 4, i10 = (Y0 * sw + X1) * 4, i01 = (Y1 * sw + X0) * 4, i11 = (Y1 * sw + X1) * 4;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+      o[oi] = src[i00] * w00 + src[i10] * w10 + src[i01] * w01 + src[i11] * w11;
+      o[oi + 1] = src[i00 + 1] * w00 + src[i10 + 1] * w10 + src[i01 + 1] * w01 + src[i11 + 1] * w11;
+      o[oi + 2] = src[i00 + 2] * w00 + src[i10 + 2] * w10 + src[i01 + 2] * w01 + src[i11 + 2] * w11;
+      o[oi + 3] = 255;
+    }
+  }
+  return out;
+}
+
+/* =================== 色调统一 =================== */
+// 取卡片底色（亮度 55%–92% 分位之间的像素均值），两面底色对齐到同一目标色
+function cardStats(id) {
+  const d = id.data, W = id.width, H = id.height, hist = new Uint32Array(256);
+  const mx = (W * 0.06) | 0, my = (H * 0.08) | 0, Ls = [];
+  for (let y = my; y < H - my; y += 2) for (let x = mx; x < W - mx; x += 2) { const i = (y * W + x) * 4; hist[(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0]++; }
+  let n = 0; for (const v of hist) n += v;
+  const pct = p => { let a = 0; for (let v = 0; v < 256; v++) { a += hist[v]; if (a >= n * p) return v; } return 255; };
+  const lo = pct(0.55), hi = pct(0.92);
+  let r = 0, g = 0, b = 0, k = 0;
+  for (let y = my; y < H - my; y += 2) for (let x = mx; x < W - mx; x += 2) {
+    const i = (y * W + x) * 4, l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    if (l >= lo && l <= hi) { r += d[i]; g += d[i + 1]; b += d[i + 2]; k++; }
+  }
+  return k ? [r / k, g / k, b / k] : [230, 230, 230];
+}
+function toneGains() {
+  const st = S.sides.map(sd => sd ? (sd._stat && sd._statKey === key(sd) ? sd._stat : (sd._statKey = key(sd), sd._stat = cardStats(warpImage(sd.work, sd.pts, 342, 216, 1.5)))) : null);
+  const have = st.filter(Boolean); if (!have.length) return [null, null];
+  // 目标：两面底色均值的色相，亮度提到 236（接近复印件纸白但保留证件底色）
+  const m = [0, 1, 2].map(c => have.reduce((s, v) => s + v[c], 0) / have.length);
+  const lm = 0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2];
+  const tgt = m.map(v => v * 236 / lm);
+  return st.map(v => v ? v.map((c, i) => Math.max(0.75, Math.min(1.9, tgt[i] / Math.max(1, c)))) : null);
+}
+function applyGains(id, gn) {
+  const d = id.data;
+  for (let i = 0; i < d.length; i += 4) { d[i] = d[i] * gn[0]; d[i + 1] = d[i + 1] * gn[1]; d[i + 2] = d[i + 2] * gn[2]; }
+}
+const key = sd => sd.pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(';');
+
+/* =================== 成品排版 =================== */
+function layoutMM() {
+  const k = S.opt.scale, cw = CARD_W * k, ch = CARD_H * k, gap = Math.max(12, ch * 0.28);
+  if (S.opt.layout === 'a4') {
+    const top = Math.max(18, A4_H * 0.42 - (2 * ch + gap) / 2);
+    const x = (A4_W - cw) / 2;
+    return { W: A4_W, H: A4_H, cards: [[x, top], [x, top + ch + gap]], cw, ch };
+  }
+  const m = 6 * Math.sqrt(k), g2 = Math.max(6, ch * 0.12);
+  return { W: cw + 2 * m, H: 2 * ch + g2 + 2 * m, cards: [[m, m], [m, m + ch + g2]], cw, ch };
+}
+function renderPage(dpi) {
+  const L = layoutMM(), px = mm => mm * dpi / 25.4;
+  const c = document.createElement('canvas'); c.width = Math.round(px(L.W)); c.height = Math.round(px(L.H));
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  const gains = S.opt.tone ? toneGains() : [null, null];
+  const cwPx = Math.round(px(L.cw)), chPx = Math.round(px(L.ch)), r = px(CARD_R * S.opt.scale);
+  S.sides.forEach((sd, i) => {
+    const [mx, my] = L.cards[i], X = px(mx), Y = px(my);
+    if (!sd) {  // 空位：虚线框占位
+      x.save(); x.setLineDash([px(1.5), px(1.2)]); x.strokeStyle = '#c9c2b4'; x.lineWidth = Math.max(1, px(0.3));
+      rrect(x, X, Y, cwPx, chPx, r); x.stroke();
+      x.fillStyle = '#b1a998'; x.font = `${px(4 * Math.sqrt(S.opt.scale))}px "Songti SC",STSong,serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText(SIDE_NAMES[i], X + cwPx / 2, Y + chPx / 2); x.restore(); return;
+    }
+    const id = warpImage(sd.work, insetQuad(sd.pts, EDGE_INSET / CARD_W, EDGE_INSET / CARD_H), cwPx, chPx);
+    if (gains[i]) applyGains(id, gains[i]);
+    const t = document.createElement('canvas'); t.width = cwPx; t.height = chPx; t.getContext('2d').putImageData(id, 0, 0);
+    x.save(); rrect(x, X, Y, cwPx, chPx, r); x.clip(); x.drawImage(t, X, Y);
+    if (S.opt.wm.trim()) watermark(x, S.opt.wm.trim(), X, Y, cwPx, chPx, px(1) * S.opt.scale);
+    x.restore();
+    if (S.opt.border) { x.save(); x.strokeStyle = 'rgba(0,0,0,.28)'; x.lineWidth = Math.max(1, px(0.2)); rrect(x, X, Y, cwPx, chPx, r); x.stroke(); x.restore(); }
+  });
+  if (S.opt.gray) {
+    const id = x.getImageData(0, 0, c.width, c.height), d = id.data;
+    for (let i = 0; i < d.length; i += 4) { const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; d[i] = d[i + 1] = d[i + 2] = l; }
+    x.putImageData(id, 0, 0);
+  }
+  return c;
+}
+/* 四边各内缩一点再取图：角点差一两个像素时，不会把桌面/背景带进卡片边缘 */
+const EDGE_INSET = 0.45;   // mm
+function insetQuad(pts, fx, fy) {
+  const H = homography([[0, 0], [1, 0], [1, 1], [0, 1]], pts);
+  const m = ([u, v]) => { const d = H[6] * u + H[7] * v + 1; return [(H[0] * u + H[1] * v + H[2]) / d, (H[3] * u + H[4] * v + H[5]) / d]; };
+  return [[fx, fy], [1 - fx, fy], [1 - fx, 1 - fy], [fx, 1 - fy]].map(m);
+}
+function rrect(x, X, Y, W, H, r) {
+  x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + W, Y, X + W, Y + H, r); x.arcTo(X + W, Y + H, X, Y + H, r);
+  x.arcTo(X, Y + H, X, Y, r); x.arcTo(X, Y, X + W, Y, r); x.closePath();
+}
+// 斜向平铺水印（每张卡片内），浅灰半透明，不遮字
+function watermark(x, text, X, Y, W, H, mm) {
+  x.save(); x.translate(X + W / 2, Y + H / 2); x.rotate(-Math.PI / 9);
+  const fs = 4.2 * mm; x.font = `${fs}px "PingFang SC","Heiti SC","Microsoft YaHei",sans-serif`;
+  x.fillStyle = 'rgba(70,70,70,.26)'; x.textBaseline = 'middle';
+  const tw = x.measureText(text).width + 10 * mm, step = 13 * mm, span = Math.hypot(W, H);
+  for (let yy = -span / 2, row = 0; yy <= span / 2; yy += step, row++)
+    for (let xx = -span / 2 - (row % 2) * tw / 2; xx <= span / 2; xx += tw) x.fillText(text, xx, yy);
+  x.restore();
+}
+
+/* =================== 预览 =================== */
+let prevTimer = 0;
+function refresh() {
+  panels.forEach((p, i) => { const sd = S.sides[i]; const st = p.querySelector('.st');
+    p.querySelector('.drop').style.display = sd ? 'none' : 'flex';
+    p.querySelectorAll('.ph button').forEach(b => b.disabled = !sd);
+    if (sd && sd.status) { const [k, t] = sd.status.split(/:(.*)/); st.className = 'st ' + k; st.textContent = t; }
+    else { st.className = 'st'; st.textContent = sd ? sd.name : ''; } });
+  const any = S.sides.some(Boolean);
+  ['#dlJpg', '#dlPdf', '#copyImg'].forEach(s => $(s).disabled = !any);
+  const L = layoutMM();
+  $('#outInfo').textContent = `${L.W.toFixed(0)}×${L.H.toFixed(0)}mm · 卡片 ${L.cw.toFixed(1)}×${L.ch.toFixed(1)}mm`;
+  clearTimeout(prevTimer); prevTimer = setTimeout(drawPreview, 60);
+}
+function drawPreview() {
+  const cv = $('#prev'), L = layoutMM();
+  const boxW = Math.min(416, cv.parentElement.clientWidth - 24), boxH = Math.max(300, Math.min(520, window.innerHeight - 420));
+  const sc = Math.min(boxW / L.W, boxH / L.H);              // px/mm（CSS）
+  const dpr = window.devicePixelRatio || 1;
+  const pg = renderPage(sc * dpr * 25.4);
+  cv.width = pg.width; cv.height = pg.height;
+  cv.style.width = (pg.width / dpr) + 'px'; cv.style.height = (pg.height / dpr) + 'px';
+  cv.getContext('2d').drawImage(pg, 0, 0);
+}
+
+/* =================== 源图视图与角点编辑 =================== */
+const views = panels.map((p, i) => ({ el: p.querySelector('.view'), cv: p.querySelector('canvas.main'), lp: p.querySelector('.loupe'), ds: 1, ox: 0, oy: 0, disp: null, drag: null }));
+function setBusy(i, on) { panels[i].querySelector('.busy').style.display = on ? 'flex' : 'none'; }
+function drawView(i) {
+  const v = views[i], sd = S.sides[i], cv = v.cv;
+  if (!sd) { cv.width = cv.height = 0; return; }
+  const bw = v.el.clientWidth - 16, bh = v.el.clientHeight - 16;
+  const ds = Math.min(bw / sd.w, bh / sd.h), dpr = window.devicePixelRatio || 1;
+  const W = Math.round(sd.w * ds), H = Math.round(sd.h * ds);
+  if (!v.disp || v.disp.src !== sd.work || v.disp.W !== W) {   // 显示用缩略图缓存
+    const c = document.createElement('canvas'); c.width = W * dpr; c.height = H * dpr;
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(sd.work, 0, 0, c.width, c.height);
+    v.disp = { c, src: sd.work, W };
+  }
+  v.ds = ds; cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.drawImage(v.disp.c, 0, 0, W, H);
+  const P = sd.pts.map(([px, py]) => [px * ds, py * ds]);
+  // 四边形外压暗
+  x.save(); x.beginPath(); x.rect(0, 0, W, H); x.moveTo(...P[0]); for (let k = 3; k >= 0; k--) x.lineTo(...P[k]); x.closePath();
+  x.fillStyle = 'rgba(20,20,20,.38)'; x.fill('evenodd'); x.restore();
+  // 边：顶边红色
+  for (let k = 0; k < 4; k++) {
+    x.beginPath(); x.moveTo(...P[k]); x.lineTo(...P[(k + 1) % 4]);
+    x.strokeStyle = k === 0 ? '#e0352b' : '#38a3ff'; x.lineWidth = k === 0 ? 2.5 : 1.6; x.stroke();
+  }
+  // 边中点
+  for (let k = 0; k < 4; k++) {
+    const a = P[k], b = P[(k + 1) % 4], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    x.fillStyle = '#fff'; x.strokeStyle = k === 0 ? '#e0352b' : '#38a3ff'; x.lineWidth = 1.5;
+    x.beginPath(); x.rect(mx - 4, my - 4, 8, 8); x.fill(); x.stroke();
+  }
+  // 角点
+  P.forEach(([px, py], k) => {
+    const act = S.active && S.active.i === i && S.active.k === k;
+    x.beginPath(); x.arc(px, py, act ? 8 : 7, 0, Math.PI * 2);
+    x.fillStyle = act ? '#ffd23f' : 'rgba(255,255,255,.9)'; x.fill();
+    x.lineWidth = 2; x.strokeStyle = k < 2 ? '#e0352b' : '#38a3ff'; x.stroke();
+  });
+  // 顶边标注
+  const a = P[0], b = P[1], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  x.save(); x.translate(mx, my); x.rotate(ang); x.font = '12px sans-serif'; x.fillStyle = '#e0352b'; x.textAlign = 'center';
+  x.fillText('顶', 0, -10); x.restore();
+}
+function viewPos(i, e) { const r = views[i].cv.getBoundingClientRect(); return [(e.clientX - r.left) / views[i].ds, (e.clientY - r.top) / views[i].ds]; }
+function hitTest(i, p) {
+  const sd = S.sides[i], tol = 14 / views[i].ds;
+  let best = null, bd = tol;
+  sd.pts.forEach((q, k) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < bd) { bd = d; best = { type: 'c', k }; } });
+  if (best) return best;
+  for (let k = 0; k < 4; k++) {
+    const a = sd.pts[k], b = sd.pts[(k + 1) % 4], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < bd) { bd = d; best = { type: 'e', k }; }
+  }
+  return best;
+}
+views.forEach((v, i) => {
+  v.cv.addEventListener('pointerdown', e => {
+    const sd = S.sides[i]; if (!sd) return;
+    const p = viewPos(i, e), h = hitTest(i, p); if (!h) return;
+    e.preventDefault(); v.cv.setPointerCapture(e.pointerId);
+    v.drag = { ...h, start: p, orig: sd.pts.map(q => q.slice()) };
+    S.active = h.type === 'c' ? { i, k: h.k } : null;
+    drawView(i); showLoupe(i, h.type === 'c' ? sd.pts[h.k] : null);
+  });
+  v.cv.addEventListener('pointermove', e => {
+    const sd = S.sides[i]; if (!sd) return;
+    const p = viewPos(i, e);
+    if (!v.drag) { const h = hitTest(i, p); v.cv.style.cursor = h ? (h.type === 'c' ? 'grab' : 'move') : 'default'; return; }
+    const dx = p[0] - v.drag.start[0], dy = p[1] - v.drag.start[1], o = v.drag.orig;
+    const clamp = q => [Math.max(0, Math.min(sd.w, q[0])), Math.max(0, Math.min(sd.h, q[1]))];
+    if (v.drag.type === 'c') sd.pts[v.drag.k] = clamp([o[v.drag.k][0] + dx, o[v.drag.k][1] + dy]);
+    else { const k = v.drag.k, k2 = (k + 1) % 4; sd.pts[k] = clamp([o[k][0] + dx, o[k][1] + dy]); sd.pts[k2] = clamp([o[k2][0] + dx, o[k2][1] + dy]); }
+    drawView(i); showLoupe(i, v.drag.type === 'c' ? sd.pts[v.drag.k] : null);
+  });
+  const end = () => { if (!v.drag) return; v.drag = null; v.lp.style.display = 'none';
+    const sd = S.sides[i]; if (sd) { sd.status = 'ok:已手动调整'; sd.cls = analyze(sd); } refresh(); };
+  v.cv.addEventListener('pointerup', end); v.cv.addEventListener('pointercancel', end);
+  // 拖放与点击
+  v.el.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); v.el.classList.add('over'); });
+  v.el.addEventListener('dragleave', () => v.el.classList.remove('over'));
+  v.el.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); v.el.classList.remove('over'); addFiles(e.dataTransfer.files, i); });
+  panels[i].querySelector('.drop').addEventListener('click', () => pickFiles(i));
+});
+/* 放大镜：显示工作图原分辨率附近区域，角点处十字线 */
+function showLoupe(i, pt) {
+  const v = views[i], sd = S.sides[i], lp = v.lp;
+  if (!pt) { lp.style.display = 'none'; return; }
+  const R = 150, Z = 4;                                // 相对显示图放大 4 倍
+  const span = R / (Z * v.ds);                          // 工作图上的边长
+  const x = lp.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, R, R);
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(sd.work, pt[0] - span / 2, pt[1] - span / 2, span, span, 0, 0, R, R);
+  const T = q => [(q[0] - pt[0]) * R / span + R / 2, (q[1] - pt[1]) * R / span + R / 2];
+  x.lineWidth = 1.5;
+  for (let k = 0; k < 4; k++) { const a = T(sd.pts[k]), b = T(sd.pts[(k + 1) % 4]); x.beginPath(); x.moveTo(...a); x.lineTo(...b); x.strokeStyle = k === 0 ? '#ff4a3d' : '#4db3ff'; x.stroke(); }
+  x.strokeStyle = 'rgba(255,255,255,.8)'; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(R / 2, R / 2 - 12); x.lineTo(R / 2, R / 2 + 12); x.moveTo(R / 2 - 12, R / 2); x.lineTo(R / 2 + 12, R / 2); x.stroke();
+  // 放在离角点远的那一角
+  const cr = v.cv.getBoundingClientRect(), er = v.el.getBoundingClientRect();
+  const sx = pt[0] * v.ds + cr.left - er.left, sy = pt[1] * v.ds + cr.top - er.top;
+  lp.style.left = (sx < er.width / 2 ? er.width - R - 10 : 10) + 'px';
+  lp.style.top = (sy < er.height / 2 ? er.height - R - 10 : 10) + 'px';
+  lp.style.display = 'block';
+}
+// 方向键微调选中角点
+document.addEventListener('keydown', e => {
+  if (!S.active || /input|textarea/i.test(document.activeElement.tagName)) return;
+  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (!d) return;
+  e.preventDefault();
+  const { i, k } = S.active, sd = S.sides[i]; if (!sd) return;
+  const step = (e.shiftKey ? 5 : 0.5) / views[i].ds;   // 半个屏幕像素；Shift 2.5 个
+  sd.pts[k] = [Math.max(0, Math.min(sd.w, sd.pts[k][0] + d[0] * step)), Math.max(0, Math.min(sd.h, sd.pts[k][1] + d[1] * step))];
+  sd.status = 'ok:已手动调整'; drawView(i); showLoupe(i, sd.pts[k]);
+  clearTimeout(views[i]._kt); views[i]._kt = setTimeout(() => { views[i].lp.style.display = 'none'; sd.cls = analyze(sd); refresh(); }, 700);
+});
+document.addEventListener('pointerdown', e => { if (!e.target.closest('.view')) { if (S.active) { const i = S.active.i; S.active = null; drawView(i); } } });
+
+/* =================== 按钮 =================== */
+let pickTarget = null;
+function pickFiles(i) { pickTarget = i; $('#file').value = ''; $('#file').click(); }
+$('#file').addEventListener('change', e => addFiles(e.target.files, pickTarget));
+panels.forEach((p, i) => p.querySelector('.ph').addEventListener('click', async e => {
+  const act = e.target.dataset && e.target.dataset.act; if (!act) return;
+  const sd = S.sides[i];
+  if (act === 'replace') return pickFiles(i);
+  if (!sd) return;
+  if (act === 'flip') { sd.pts = rot180(sd.pts); sd.cls = analyze(sd); drawView(i); refresh(); }
+  if (act === 'redetect') { setBusy(i, true); await detectSide(sd); setBusy(i, false); drawView(i); refresh(); }
+}));
+$('#swap').addEventListener('click', () => { S.sides = [S.sides[1], S.sides[0]]; S.userSwapped = true; S.active = null; drawView(0); drawView(1); refresh(); });
+
+function bindSeg(sel, k, parse) {
+  const el = $(sel);
+  const sync = () => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', parse(b.dataset.v) === S.opt[k]));
+  el.addEventListener('click', e => { if (!e.target.dataset.v) return; S.opt[k] = parse(e.target.dataset.v); sync(); saveOpt(); refresh(); });
+  sync();
+}
+bindSeg('#optScale', 'scale', Number); bindSeg('#optLayout', 'layout', String);
+[['#optTone', 'tone'], ['#optBorder', 'border'], ['#optGray', 'gray']].forEach(([s, k]) => {
+  $(s).checked = S.opt[k]; $(s).addEventListener('change', e => { S.opt[k] = e.target.checked; saveOpt(); refresh(); });
+});
+$('#optWm').addEventListener('input', e => { S.opt.wm = e.target.value; refresh(); });
+$('#optName').addEventListener('input', e => { S.opt.name = e.target.value; });
+
+/* =================== 输出 =================== */
+function fname(ext) { return (S.opt.name.trim() || '身份证').replace(/[\\/:*?"<>|]/g, '_') + '.' + ext; }
+function toBlob(c, type, q) { return new Promise(r => c.toBlob(r, type, q)); }
+function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
+async function withBusy(btn, f) { const t = btn.textContent; btn.disabled = true; btn.textContent = '生成中…'; await new Promise(r => setTimeout(r, 20)); try { await f(); } finally { btn.textContent = t; btn.disabled = false; } }
+function checkBeforeExport() { if (!S.sides[0] || !S.sides[1]) msg('只有一面，另一面在成品里是空框', true); }
+$('#dlJpg').addEventListener('click', e => withBusy(e.target, async () => {
+  checkBeforeExport(); const c = renderPage(OUT_DPI);
+  const b = new Blob([jpegDpi(new Uint8Array(await (await toBlob(c, 'image/jpeg', 0.92)).arrayBuffer()), OUT_DPI)], { type: 'image/jpeg' });
+  download(b, fname('jpg')); msg(`已生成 ${fname('jpg')}（${(b.size / 1024 / 1024).toFixed(2)}MB）`);
+}));
+$('#dlPdf').addEventListener('click', e => withBusy(e.target, async () => {
+  checkBeforeExport(); const c = renderPage(OUT_DPI), L = layoutMM();
+  const jpg = new Uint8Array(await (await toBlob(c, 'image/jpeg', 0.92)).arrayBuffer());
+  const b = makePdf(jpg, c.width, c.height, L.W * 72 / 25.4, L.H * 72 / 25.4);
+  download(b, fname('pdf')); msg(`已生成 ${fname('pdf')}（${(b.size / 1024 / 1024).toFixed(2)}MB）`);
+}));
+$('#copyImg').addEventListener('click', e => withBusy(e.target, async () => {
+  try {
+    const c = renderPage(OUT_DPI); const b = await toBlob(c, 'image/png');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]);
+    msg('已复制，可直接粘贴到微信、Word');
+  } catch (err) { msg('浏览器不允许复制图片，请改用下载', true); }
+}));
+/* 写入 JFIF 分辨率：浏览器导出的 JPEG 不带 DPI，插进 Word / 打印会按 72 或 96dpi 算成超大尺寸 */
+function jpegDpi(u, dpi) {
+  if (u[2] === 0xFF && u[3] === 0xE0 && String.fromCharCode(u[6], u[7], u[8], u[9]) === 'JFIF') {
+    u[13] = 1; u[14] = dpi >> 8; u[15] = dpi & 255; u[16] = dpi >> 8; u[17] = dpi & 255; return u;
+  }
+  const app0 = new Uint8Array([0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1, 1, 1, dpi >> 8, dpi & 255, dpi >> 8, dpi & 255, 0, 0]);
+  const o = new Uint8Array(u.length + app0.length); o.set(u.subarray(0, 2)); o.set(app0, 2); o.set(u.subarray(2), 2 + app0.length); return o;
+}
+/* 最小 PDF：单页，整页一张 JPEG（DCTDecode 直接嵌入，不重新压缩） */
+function makePdf(jpg, pw, ph, W, H) {
+  const enc = new TextEncoder(), parts = [], offs = []; let len = 0;
+  const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+  const obj = (n, body) => { offs[n] = len; put(`${n} 0 obj\n`); body(); put('\nendobj\n'); };
+  const f = v => v.toFixed(2);
+  put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  obj(1, () => put('<< /Type /Catalog /Pages 2 0 R >>'));
+  obj(2, () => put('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'));
+  obj(3, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(W)} ${f(H)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`));
+  obj(4, () => { put(`<< /Type /XObject /Subtype /Image /Width ${pw} /Height ${ph} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`); put(jpg); put('\nendstream'); });
+  const cs = `q ${f(W)} 0 0 ${f(H)} 0 0 cm /Im0 Do Q`;
+  obj(5, () => put(`<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`));
+  const xref = len;
+  put(`xref\n0 6\n0000000000 65535 f \n${[1, 2, 3, 4, 5].map(n => String(offs[n]).padStart(10, '0') + ' 00000 n \n').join('')}`);
+  put(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
+
+/* =================== 全局拖放、粘贴 =================== */
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files, null); });
+document.addEventListener('paste', e => {
+  const fs = [...(e.clipboardData || {}).items || []].filter(it => it.kind === 'file').map(it => it.getAsFile()).filter(Boolean);
+  if (fs.length) { e.preventDefault(); addFiles(fs, null); }
+});
+window.addEventListener('resize', () => { clearTimeout(window._rt); window._rt = setTimeout(() => { views.forEach((v, i) => { v.disp = null; drawView(i); }); refresh(); }, 150); });
+refresh();
+</script>
+</body>
+</html>
